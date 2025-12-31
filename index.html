@@ -10,18 +10,19 @@
       position: fixed; inset: 0;
       width: 100vw; height: 100vh;
       object-fit: cover;
-      transform: scaleX(-1); /* mirror for natural control */
-      filter: contrast(1.05) saturate(1.05);
+      transform: scaleX(-1);
+      background:#000;
     }
     #gl {
       position: fixed; inset: 0;
       width: 100vw; height: 100vh;
-      pointer-events: none; /* let UI buttons receive taps */
+      pointer-events: none;
     }
     #ui {
       position: fixed; left: 12px; right: 12px; top: 12px;
       display:flex; gap:10px; align-items:center; justify-content:space-between;
       color:#fff; text-shadow: 0 2px 8px rgba(0,0,0,.7);
+      z-index: 10;
     }
     .panel {
       display:flex; gap:10px; align-items:center;
@@ -34,11 +35,12 @@
     button {
       appearance:none; border:0; border-radius: 12px;
       padding: 10px 12px;
-      font-weight: 700;
+      font-weight: 800;
       background: rgba(255,255,255,.16);
       color:#fff;
     }
     button:active { transform: scale(.98); }
+
     #msg {
       position: fixed; left: 12px; right: 12px; bottom: 14px;
       padding: 10px 12px;
@@ -48,27 +50,62 @@
       color:#fff;
       font-size: 14px;
       backdrop-filter: blur(6px);
+      z-index: 10;
     }
-    #centerDot {
-      position: fixed; left: 50%; top: 50%;
-      width: 8px; height: 8px; border-radius: 50%;
-      transform: translate(-50%,-50%);
-      background: rgba(255,255,255,.7);
-      box-shadow: 0 0 10px rgba(255,255,255,.6);
-      pointer-events:none;
-      display:none;
+
+    /* Big Start overlay */
+    #startOverlay {
+      position: fixed; inset: 0;
+      display:flex; align-items:center; justify-content:center;
+      background: rgba(0,0,0,.65);
+      z-index: 20;
+      padding: 20px;
+      text-align:center;
+      color:#fff;
     }
+    #startCard {
+      max-width: 520px;
+      width: 100%;
+      background: rgba(20,20,20,.85);
+      border: 1px solid rgba(255,255,255,.18);
+      border-radius: 18px;
+      padding: 18px;
+    }
+    #startTitle { font-size: 22px; font-weight: 900; margin-bottom: 6px; }
+    #startText { opacity: .92; line-height: 1.35; font-size: 14px; margin-bottom: 14px; }
+    #startBtn {
+      width: 100%;
+      padding: 14px 12px;
+      font-size: 16px;
+      border-radius: 14px;
+      background: rgba(255,255,255,.22);
+    }
+    #tinyNote { margin-top: 10px; font-size: 12px; opacity: .8; }
   </style>
 </head>
 <body>
-  <video id="video" playsinline muted autoplay></video>
+  <video id="video" playsinline muted></video>
   <canvas id="gl"></canvas>
+
+  <div id="startOverlay">
+    <div id="startCard">
+      <div id="startTitle">Tetra Tower (AR-lite)</div>
+      <div id="startText">
+        Tap <b>Start</b> to enable camera + hand tracking (iPhone requires a tap).<br><br>
+        <b>How to play:</b> Pinch (thumb+index) to spawn/hold → move hand → release to drop.
+        Tap <b>Rotate</b> while holding.
+      </div>
+      <button id="startBtn">Start</button>
+      <div id="tinyNote">If you see “Camera blocked”, open in Safari (not in-app browser) and allow camera permission.</div>
+    </div>
+  </div>
 
   <div id="ui">
     <div class="panel" style="flex:1; justify-content:space-between;">
       <div>
         <div style="font-size:12px; opacity:.9;">Tetra Tower</div>
-        <div id="turn" style="font-size:16px; font-weight:800;">Player 1’s turn</div>
+        <div id="turn" style="font-size:16px; font-weight:900;">Not started</div>
+        <div id="status" style="font-size:12px; opacity:.9; margin-top:2px;">Waiting…</div>
       </div>
       <div style="display:flex; gap:10px; align-items:center;">
         <div id="playersLabel" style="font-size:12px; opacity:.9;">Players: 2</div>
@@ -83,41 +120,39 @@
   </div>
 
   <div id="msg">
-    <b>How to play:</b> Pinch (thumb+index) to grab/spawn a tetra block → move hand to position → release pinch to drop.
-    Tap <b>Rotate</b> while holding to rotate the block. If the tower collapses on your turn, you lose.
+    Tip: Use good lighting. Keep your hand ~30–60cm from the camera.
   </div>
 
-  <div id="centerDot"></div>
-
-  <!-- MediaPipe Hands -->
+  <!-- MediaPipe Hands (UMD scripts) -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.min.js"></script>
 
   <script type="module">
     import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
-    import { OrbitControls } from "https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js";
-    import * as CANNON from "https://cdn.skypack.dev/cannon-es";
+    import * as CANNON from "https://esm.sh/cannon-es@0.20.0";
 
-    // ---------- Basic setup ----------
     const video = document.getElementById('video');
     const canvas = document.getElementById('gl');
+
     const turnEl = document.getElementById('turn');
+    const statusEl = document.getElementById('status');
     const playersBtn = document.getElementById('playersBtn');
     const playersLabel = document.getElementById('playersLabel');
     const rotateBtn = document.getElementById('rotateBtn');
     const resetBtn = document.getElementById('resetBtn');
+    const startOverlay = document.getElementById('startOverlay');
+    const startBtn = document.getElementById('startBtn');
 
     let numPlayers = 2;
     let currentPlayer = 1;
     let gameOver = false;
 
+    function setStatus(t){ statusEl.textContent = t; }
     function updateTurnUI() {
       turnEl.textContent = gameOver ? `Game Over` : `Player ${currentPlayer}’s turn`;
       playersLabel.textContent = `Players: ${numPlayers}`;
     }
-    updateTurnUI();
 
-    // ---------- THREE scene ----------
+    // ---- WebGL scene ----
     const renderer = new THREE.WebGLRenderer({ canvas, alpha:true, antialias:true });
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     renderer.setSize(innerWidth, innerHeight);
@@ -126,91 +161,68 @@
     const camera = new THREE.PerspectiveCamera(55, innerWidth/innerHeight, 0.01, 100);
     camera.position.set(0, 2.2, 4.0);
 
-    // Keep camera fixed (we are AR-lite); controls off by default.
-    // If you want debug controls on laptop: uncomment controls.
-    // const controls = new OrbitControls(camera, renderer.domElement);
-    // controls.enableDamping = true;
-
     const light1 = new THREE.DirectionalLight(0xffffff, 1.0);
     light1.position.set(2, 5, 3);
     scene.add(light1);
     scene.add(new THREE.AmbientLight(0xffffff, 0.35));
 
-    // Ground grid (invisible, just for reference if needed)
-    const groundVisual = new THREE.Mesh(
-      new THREE.PlaneGeometry(20, 20),
-      new THREE.MeshStandardMaterial({ color:0x111111, transparent:true, opacity:0.0 })
-    );
-    groundVisual.rotation.x = -Math.PI/2;
-    groundVisual.position.y = 0;
-    scene.add(groundVisual);
-
-    // ---------- CANNON physics ----------
-    const world = new CANNON.World({
-      gravity: new CANNON.Vec3(0, -9.82, 0),
-    });
-
+    // ---- Physics ----
+    const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -9.82, 0) });
     world.broadphase = new CANNON.SAPBroadphase(world);
     world.allowSleep = true;
 
     const groundMat = new CANNON.Material("ground");
     const blockMat = new CANNON.Material("block");
-    const contact = new CANNON.ContactMaterial(groundMat, blockMat, {
-      friction: 0.6,
+    world.addContactMaterial(new CANNON.ContactMaterial(groundMat, blockMat, {
+      friction: 0.65,
       restitution: 0.05,
-    });
-    world.addContactMaterial(contact);
+    }));
 
     const groundBody = new CANNON.Body({ mass: 0, material: groundMat });
     groundBody.addShape(new CANNON.Plane());
     groundBody.quaternion.setFromEuler(-Math.PI/2, 0, 0);
     world.addBody(groundBody);
 
-    // ---------- Tetrahedron shape ----------
-    // A regular-ish tetra centered around origin.
-    // Scale is applied by multiplying vertices later for physics + mesh.
+    // ---- Tetra shape ----
     const tetraVerts = [
       new CANNON.Vec3( 1,  1,  1),
       new CANNON.Vec3(-1, -1,  1),
       new CANNON.Vec3(-1,  1, -1),
       new CANNON.Vec3( 1, -1, -1),
     ];
-    const tetraFaces = [
-      [0,1,2],
-      [0,3,1],
-      [0,2,3],
-      [1,3,2],
-    ];
+    const tetraFaces = [[0,1,2],[0,3,1],[0,2,3],[1,3,2]];
 
     function makeTetraConvex(scale=0.18) {
       const verts = tetraVerts.map(v => new CANNON.Vec3(v.x*scale, v.y*scale, v.z*scale));
       return new CANNON.ConvexPolyhedron({ vertices: verts, faces: tetraFaces });
     }
-
-    function makeTetraMesh(scale=0.18) {
-      // Create tetra geometry
-      const geom = new THREE.TetrahedronGeometry(scale*1.8); // mesh scale feels nice
-      const mat = new THREE.MeshStandardMaterial({
-        color: 0xffffff,
-        roughness: 0.35,
-        metalness: 0.05,
-        transparent: true,
-        opacity: 0.95
-      });
-      const mesh = new THREE.Mesh(geom, mat);
-      mesh.castShadow = false;
-      mesh.receiveShadow = false;
-      return mesh;
+    function makeTetraMesh(scale=0.18, color=0xffffff) {
+      const geom = new THREE.TetrahedronGeometry(scale*1.8);
+      const mat = new THREE.MeshStandardMaterial({ color, roughness:0.35, metalness:0.05, transparent:true, opacity:0.95 });
+      return new THREE.Mesh(geom, mat);
     }
 
-    // Track blocks
-    const blocks = []; // { body, mesh, isBase? }
+    const blocks = [];
+    let held = null;
+    let holding = false;
+    let lastPinch = false;
 
-    // Base position (AR-lite anchor)
-    const ANCHOR = new THREE.Vector3(0, 0, 0);
-    // We'll place initial stable base blocks
+    function createBlock({ position, rotationY=0, mass=0.6, color=0xffffff }) {
+      const shape = makeTetraConvex(0.18);
+      const body = new CANNON.Body({ mass, material: blockMat });
+      body.addShape(shape);
+      body.position.set(position.x, position.y, position.z);
+      body.quaternion.setFromEuler(0, rotationY, 0);
+      body.linearDamping = 0.01;
+      body.angularDamping = 0.06;
+      world.addBody(body);
+
+      const mesh = makeTetraMesh(0.18, color);
+      scene.add(mesh);
+      return { body, mesh };
+    }
+
     function spawnBase() {
-      // A small “starter base” of 3 tetra blocks
       const basePositions = [
         new THREE.Vector3(0, 0.22, 0),
         new THREE.Vector3(-0.28, 0.22, 0.18),
@@ -218,39 +230,11 @@
       ];
       basePositions.forEach((p, i) => {
         const { body, mesh } = createBlock({
-          position: new THREE.Vector3(p.x, p.y, p.z),
-          rotationY: (i*0.7),
-          mass: 0.0, // base blocks fixed
-          color: 0x7fd1ff
+          position: p, rotationY: i*0.7, mass: 0.0, color: 0x7fd1ff
         });
         blocks.push({ body, mesh, isBase:true });
       });
     }
-
-    function createBlock({ position, rotationY=0, mass=0.6, color=0xffffff }) {
-      const shape = makeTetraConvex(0.18);
-      const body = new CANNON.Body({
-        mass,
-        material: blockMat,
-        position: new CANNON.Vec3(position.x, position.y, position.z),
-      });
-      body.addShape(shape);
-      body.quaternion.setFromEuler(0, rotationY, 0);
-      body.linearDamping = 0.01;
-      body.angularDamping = 0.05;
-      world.addBody(body);
-
-      const mesh = makeTetraMesh(0.18);
-      mesh.material.color.setHex(color);
-      scene.add(mesh);
-
-      return { body, mesh };
-    }
-
-    // Held block state
-    let held = null; // { body, mesh, droppedAt? }
-    let holding = false;
-    let lastPinch = false;
 
     function nextPlayer() {
       currentPlayer = (currentPlayer % numPlayers) + 1;
@@ -258,108 +242,72 @@
     }
 
     function resetGame() {
-      // remove all blocks
-      blocks.forEach(b => {
-        world.removeBody(b.body);
-        scene.remove(b.mesh);
-      });
+      blocks.forEach(b => { world.removeBody(b.body); scene.remove(b.mesh); });
       blocks.length = 0;
-
-      if (held) {
-        world.removeBody(held.body);
-        scene.remove(held.mesh);
-        held = null;
-      }
-
+      if (held) { world.removeBody(held.body); scene.remove(held.mesh); held = null; }
       currentPlayer = 1;
       gameOver = false;
       updateTurnUI();
       spawnBase();
     }
 
-    resetBtn.addEventListener('click', resetGame);
-
+    // ---- UI handlers ----
     playersBtn.addEventListener('click', () => {
-      if (numPlayers === 2) numPlayers = 3;
-      else if (numPlayers === 3) numPlayers = 4;
-      else numPlayers = 2;
+      numPlayers = (numPlayers === 2) ? 3 : (numPlayers === 3) ? 4 : 2;
       if (currentPlayer > numPlayers) currentPlayer = 1;
       updateTurnUI();
     });
 
     rotateBtn.addEventListener('click', () => {
       if (!held || !holding || gameOver) return;
-      // rotate held block 60 degrees around Y each tap
       const q = new CANNON.Quaternion();
       q.setFromEuler(0, Math.PI/3, 0);
       held.body.quaternion = held.body.quaternion.mult(q);
     });
 
-    // ---------- Lose detection ----------
-    // Player loses if within 3 seconds after drop:
-    // - any non-base block falls too low OR
-    // - overall tower “collapses” (several blocks below threshold)
-    const DROP_CHECK_MS = 3000;
+    resetBtn.addEventListener('click', resetGame);
+
+    // ---- Lose detection ----
+    const DROP_CHECK_MS = 2500;
     const FALL_Y = -0.25;
 
     function checkLoseCondition() {
       const dynamicBlocks = blocks.filter(b => !b.isBase);
-      if (dynamicBlocks.length === 0) return false;
-
-      let fallen = 0;
       for (const b of dynamicBlocks) {
-        if (b.body.position.y < FALL_Y) fallen++;
+        if (b.body.position.y < FALL_Y) return true;
       }
-      // If any block fell below threshold -> treat as collapse
-      if (fallen >= 1) return true;
-
       return false;
     }
 
     function endGameLoser(player) {
       gameOver = true;
       turnEl.textContent = `Player ${player} LOST 😵`;
+      setStatus("Tower collapsed.");
     }
 
-    // ---------- Hand tracking (MediaPipe) ----------
-    // Pinch detection: distance between thumb tip (4) and index tip (8)
+    // ---- Hand tracking ----
     function pinchFromLandmarks(lm) {
-      const t = lm[4];
-      const i = lm[8];
+      const t = lm[4], i = lm[8];
       const dx = t.x - i.x, dy = t.y - i.y;
       const d = Math.sqrt(dx*dx + dy*dy);
-      return d < 0.05; // tweak if needed
+      return d < 0.05;
     }
 
-    // Convert normalized screen point to 3D world placement area
-    // We place held block on an invisible plane a bit above the base.
     const raycaster = new THREE.Raycaster();
-    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.55); // y=0.55 plane
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.55);
     const tmpVec = new THREE.Vector3();
 
     function screenToWorld(nx, ny) {
-      // nx, ny in [0..1] (mediapipe). Our video is mirrored, so flip X.
-      const x = (1 - nx) * 2 - 1;   // -1..1
-      const y = -(ny * 2 - 1);      // -1..1
+      const x = (1 - nx) * 2 - 1;
+      const y = -(ny * 2 - 1);
       raycaster.setFromCamera({ x, y }, camera);
       raycaster.ray.intersectPlane(plane, tmpVec);
-
-      // clamp to a small area above base so it feels “on table”
       tmpVec.x = THREE.MathUtils.clamp(tmpVec.x, -1.0, 1.0);
       tmpVec.z = THREE.MathUtils.clamp(tmpVec.z, -1.0, 1.0);
       return tmpVec.clone();
     }
 
-    async function startCamera() {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user" },
-        audio: false
-      });
-      video.srcObject = stream;
-      await video.play();
-    }
-
-    // MediaPipe Hands init
+    // MediaPipe Hands
     const hands = new Hands({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
     });
@@ -370,75 +318,56 @@
       minTrackingConfidence: 0.65,
     });
 
+    let lastSeenHandAt = 0;
+
     hands.onResults((results) => {
       if (gameOver) return;
 
       const lm = results.multiHandLandmarks?.[0];
       if (!lm) {
+        if (performance.now() - lastSeenHandAt > 800) setStatus("No hand detected (try brighter light).");
         lastPinch = false;
         return;
       }
 
+      lastSeenHandAt = performance.now();
+      setStatus("Hand detected ✅");
+
       const pinch = pinchFromLandmarks(lm);
-      const pointer = lm[8]; // index fingertip
+      const pointer = lm[8];
       const worldPos = screenToWorld(pointer.x, pointer.y);
 
-      // Pinch start: spawn/grab
       if (pinch && !lastPinch) {
         holding = true;
-
         if (!held) {
-          const spawnPos = worldPos.clone();
-          spawnPos.y = 0.9;
-          const { body, mesh } = createBlock({
-            position: spawnPos,
-            rotationY: 0,
-            mass: 0.0, // kinematic-ish while holding
-            color: 0xfff1a6
-          });
-          // While holding, keep mass 0 and manually move it
-          held = { body, mesh, droppedAt: null };
+          const spawnPos = worldPos.clone(); spawnPos.y = 0.95;
+          const { body, mesh } = createBlock({ position: spawnPos, mass: 0.0, color: 0xfff1a6 });
+          held = { body, mesh };
         }
-
-        // “lift” a bit when grabbed
-        held.body.position.set(worldPos.x, 0.95, worldPos.z);
-        held.body.velocity.set(0,0,0);
-        held.body.angularVelocity.set(0,0,0);
       }
 
-      // While holding: move block with hand
       if (pinch && holding && held) {
         held.body.position.set(worldPos.x, 0.95, worldPos.z);
         held.body.velocity.set(0,0,0);
         held.body.angularVelocity.set(0,0,0);
       }
 
-      // Release: drop -> becomes dynamic
       if (!pinch && lastPinch && held) {
         holding = false;
-
-        // Make it dynamic
         held.body.mass = 0.6;
         held.body.updateMassProperties();
-
-        // give a tiny downward settle
         held.body.velocity.set(0, -0.2, 0);
 
-        // move to blocks list
         blocks.push({ body: held.body, mesh: held.mesh, isBase:false });
 
-        // start lose check timer for this player
         const placedBy = currentPlayer;
-        const dropTime = performance.now();
+        setStatus("Checking stability…");
 
         setTimeout(() => {
           if (gameOver) return;
           const lost = checkLoseCondition();
-          if (lost) {
-            endGameLoser(placedBy);
-          } else {
-            nextPlayer();
-          }
+          if (lost) endGameLoser(placedBy);
+          else { setStatus("Stable ✅ Next player"); nextPlayer(); }
         }, DROP_CHECK_MS);
 
         held = null;
@@ -447,31 +376,44 @@
       lastPinch = pinch;
     });
 
-    // Use MediaPipe Camera helper
-    async function startHandsLoop() {
-      await startCamera();
-      const cam = new Camera(video, {
-        onFrame: async () => {
-          await hands.send({ image: video });
-        },
-        width: 1280,
-        height: 720
+    // ---- Start camera ONLY after user taps Start ----
+    async function startCameraAndLoop() {
+      setStatus("Starting camera…");
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user" },
+        audio: false
       });
-      cam.start();
+
+      video.srcObject = stream;
+      await video.play();
+
+      setStatus("Camera on ✅ Loading hand tracking…");
+      updateTurnUI();
+
+      // Frame loop for MediaPipe
+      async function frame() {
+        try {
+          await hands.send({ image: video });
+        } catch (e) {
+          setStatus("Hand model error (reload).");
+          console.error(e);
+        }
+        requestAnimationFrame(frame);
+      }
+      frame();
     }
 
-    // ---------- Main loop ----------
+    // ---- Render loop ----
     resetGame();
+    updateTurnUI();
 
     const clock = new THREE.Clock();
     function animate() {
       requestAnimationFrame(animate);
-
-      // Step physics
       const dt = Math.min(clock.getDelta(), 0.033);
       world.step(1/60, dt, 3);
 
-      // Sync meshes
       for (const b of blocks) {
         b.mesh.position.copy(b.body.position);
         b.mesh.quaternion.copy(b.body.quaternion);
@@ -483,6 +425,7 @@
 
       renderer.render(scene, camera);
     }
+    animate();
 
     window.addEventListener('resize', () => {
       renderer.setSize(innerWidth, innerHeight);
@@ -490,14 +433,30 @@
       camera.updateProjectionMatrix();
     });
 
-    // Start
-    startHandsLoop().catch(err => {
-      console.error(err);
-      document.getElementById('msg').innerHTML =
-        "<b>Camera blocked.</b> Please allow camera permissions and reload. (Must be on HTTPS like GitHub Pages.)";
+    // Global error helpers
+    window.addEventListener('error', (e) => {
+      setStatus("JS error — reload page.");
+      console.error(e.error || e.message);
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      setStatus("Load error — check network or reload.");
+      console.error(e.reason);
     });
 
-    animate();
+    startBtn.addEventListener('click', async () => {
+      startBtn.disabled = true;
+      startBtn.textContent = "Starting…";
+      try {
+        await startCameraAndLoop();
+        startOverlay.style.display = "none";
+      } catch (err) {
+        console.error(err);
+        startBtn.disabled = false;
+        startBtn.textContent = "Start";
+        setStatus("Camera blocked ❌ Allow camera permission and reload.");
+        alert("Camera blocked. Please allow Camera access in Safari and reload.\n\niPhone: Settings > Safari > Camera > Allow\nThen reload the page.");
+      }
+    });
   </script>
 </body>
 </html>
